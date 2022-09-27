@@ -1,0 +1,17 @@
+[package]
+name = "SFP-AP-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rp2040-hal = "0.6.0"
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+embedded-hal = { version = "0.2.5", features = ["unproven"] }
+panic-halt = "0.2.0"
+rp2040-boot2 = "0.2.1"
+usb-device = "0.2.9"
+usbd-serial = "0.1.1"
+fugit = "0.3.6"
