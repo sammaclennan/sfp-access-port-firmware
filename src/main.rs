@@ -58,8 +58,8 @@ fn main() -> ! {
     let mut serial = SerialPort::new(&usb_bus);
     let mut usb_dev = UsbDeviceBuilder::new(
         &usb_bus, UsbVidPid(0x1209, 0x0009))
-        .manufacturer("maclennan")
-        .product("SFP-Access-Port-v0.1")
+        .manufacturer("MacLennan.dev")
+        .product("SFP Access Port v0.1")
         .serial_number("0x0001")
         .device_class(2)
         .build();
@@ -90,9 +90,11 @@ fn main() -> ! {
         if usb_dev.poll(&mut [&mut serial]) {
             if (device_found){
                 serial.write(b"Found SFP Device!\r\n");
+                device_found = false;
             }else {
                 serial.write(b"No Device Found YET!\r\n");
             }
+            //delay.delay_ms(2000);
         }
     }
 
