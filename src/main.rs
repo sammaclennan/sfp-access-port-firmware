@@ -2,20 +2,21 @@
 #![no_main]
 
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{sync::atomic::{AtomicBool, Ordering}, cell::RefCell, ops::DerefMut};
 
+use cortex_m::{asm::wfi};
+use critical_section::{Mutex};
 // Define behavior on panic
 use panic_halt as _;
 
 use rp2040_hal as hal;
-use hal::{pac, I2C};
-use pac::interrupt;
+use hal::{pac::{self, I2C0, interrupt}, I2C, gpio::{self, bank0::Gpio28,bank0::Gpio29, Function}};
+use gpio::{Pin};
 use usb_device::{class_prelude::*, prelude::*};
 use usbd_serial::SerialPort;
 
 use fugit::RateExtU32;
 use embedded_hal::{
-    digital::v2::OutputPin, 
     prelude::_embedded_hal_blocking_i2c_Read
 };
 use rp2040_hal::clocks::Clock;
@@ -31,7 +32,11 @@ static mut USB_DEVICE: Option<UsbDevice<hal::usb::UsbBus>> = None;
 static mut USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
 static mut USB_SERIAL: Option<SerialPort<hal::usb::UsbBus>> = None;
 
-static XCVR_PRSNT: AtomicBool = AtomicBool::new(false);
+//Global Peripheral Access
+type I2C_PINS = (Pin<Gpio28, Function<gpio::I2C>>, Pin<Gpio29, Function<gpio::I2C>>);
+static I2C_BUS: Mutex<RefCell<Option<I2C<I2C0,I2C_PINS>>>> = Mutex::new(RefCell::new(None));
+
+
 #[rp2040_hal::entry]
 fn main() -> ! {
 
@@ -82,8 +87,8 @@ fn main() -> ! {
     }
 
     let mut usb_dev = UsbDeviceBuilder::new(
-        bus_ref, UsbVidPid(0x1209, 0x0009))
-        .manufacturer("MacLennan.dev")
+        bus_ref, UsbVidPid(0x1209, 0xFA00))
+        .manufacturer("Maclennan.dev")
         .product("SFP Access Port v0.1")
         .serial_number("0x0001")
         .device_class(2)
@@ -106,6 +111,9 @@ fn main() -> ! {
         &mut pac.RESETS, 
         12_000_000.Hz()
     );
+    // Move our I2C struct into our RefCell - can't do this statically, so it needs to be done at runtime
+    critical_section::with(|cs| I2C_BUS.borrow(cs).replace(Some(i2c)));
+
 
     let mut aux_led = pins.gpio20.into_push_pull_output();
     let timer = hal::Timer::new(pac.TIMER, &mut pac.RESETS);
@@ -113,23 +121,7 @@ fn main() -> ! {
 
     loop {
 
-            let mut readbuf: [u8; 1] = [0; 1];
-            let res = i2c.read(0x50,&mut readbuf);
-            if let Ok(d) = res {
-                XCVR_PRSNT.store(true, Ordering::Relaxed)
-            }
-        
-        // Check for new data
-        // if usb_dev.poll(&mut [&mut serial]) {
-        //     if (device_found){
-        //         serial.write(b"Found SFP Device!\r\n");
-        //         device_found = false;
-        //     }else {
-        //         serial.write(b"No Device Found YET!\r\n");
-        //     }
-            
-        // }
-        //delay.delay_ms(2000);
+            wfi();
     }
 
 }
@@ -139,7 +131,6 @@ fn main() -> ! {
 
 #[interrupt]
 unsafe fn  USBCTRL_IRQ() {
-    use core::sync::atomic::{AtomicBool, Ordering};
 
     let usb_dev = USB_DEVICE.as_mut().unwrap();
     let serial = USB_SERIAL.as_mut().unwrap();
@@ -154,15 +145,30 @@ unsafe fn  USBCTRL_IRQ() {
                 //No data - Ignore
             }
             Ok(count) => {
-                if XCVR_PRSNT.load(Ordering::Relaxed) {
-                    serial.write(b"SFP Module Detected!\r\n");
-                    XCVR_PRSNT.store(false, Ordering::Relaxed)
-                } else {
-                    serial.write(b"No SFP Module Detected\r\n");
-                }
+                critical_section::with(|cs| {
+                    let mut readbuf: [u8; 1] = [0; 1]; //96 bytes is the size of the Serial ID field defined by SFP MSA
+
+                    // We need a mutable reference to the I2C bus, so we need to borrow and de-ref
+                    if let Some(ref mut i2c_ref) = I2C_BUS.borrow(cs).borrow_mut().deref_mut(){
+
+                        // Technically this is blocking, so we might not want this in an interrupt - but it should be okay for now??
+                        let res = i2c_ref.read(0x50, &mut readbuf); // this works - but the address is wrong???
+                        if let Ok(d) = res {
+                           serial.write(b"XCVR Detected!\r\n");
+                        } else {
+                            serial.write(b"No XCVR detected\r\n");
+                        }
+                    };
+                    
+                })
+                
             }
         }
     }
+
+}
+
+fn read_xcvr_serial() {
 
 }
 

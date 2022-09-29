@@ -9,6 +9,7 @@ edition = "2021"
 rp2040-hal = { version = "0.6.0", features = ["rt"] }
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
+critical-section = "1.1.1"
 embedded-hal = { version = "0.2.5", features = ["unproven"] }
 panic-halt = "0.2.0"
 rp2040-boot2 = "0.2.1"
