@@ -154,7 +154,10 @@ unsafe fn  USBCTRL_IRQ() {
                         // Technically this is blocking, so we might not want this in an interrupt - but it should be okay for now??
                         let res = i2c_ref.read(0x50, &mut readbuf); // this works - but the address is wrong???
                         if let Ok(d) = res {
-                           serial.write(b"XCVR Detected!\r\n");
+                           serial.write(b"XCVR Detected! Module Identifier: \r\n");
+                           readbuf.iter_mut().take(count).for_each(|b| {
+                            serial.write(&b.to_be_bytes());
+                           });
                         } else {
                             serial.write(b"No XCVR detected\r\n");
                         }
