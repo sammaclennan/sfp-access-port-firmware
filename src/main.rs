@@ -31,7 +31,7 @@ static mut USB_DEVICE: Option<UsbDevice<hal::usb::UsbBus>> = None;
 static mut USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
 static mut USB_SERIAL: Option<SerialPort<hal::usb::UsbBus>> = None;
 
-static mut XCVR_PRSNT: AtomicBool = AtomicBool::new(false);
+static XCVR_PRSNT: AtomicBool = AtomicBool::new(false);
 #[rp2040_hal::entry]
 fn main() -> ! {
 
@@ -145,11 +145,22 @@ unsafe fn  USBCTRL_IRQ() {
     let serial = USB_SERIAL.as_mut().unwrap();
 
     if usb_dev.poll(&mut [serial]){
-        if *XCVR_PRSNT.get_mut() == true {
-            serial.write(b"SFP Module Detected!\r\n");
-            XCVR_PRSNT.store(false, Ordering::Relaxed)
-        } else {
-            serial.write(b"No SFP Module Detected\r\n");
+        let  mut buf = [0u8; 64];
+        match serial.read(&mut buf){
+            Err(_e) => {
+                // Ignore
+            }
+            Ok(0) => {
+                //No data - Ignore
+            }
+            Ok(count) => {
+                if XCVR_PRSNT.load(Ordering::Relaxed) {
+                    serial.write(b"SFP Module Detected!\r\n");
+                    XCVR_PRSNT.store(false, Ordering::Relaxed)
+                } else {
+                    serial.write(b"No SFP Module Detected\r\n");
+                }
+            }
         }
     }
 
