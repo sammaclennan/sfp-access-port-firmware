@@ -17,7 +17,7 @@ use usbd_serial::SerialPort;
 
 use fugit::RateExtU32;
 use embedded_hal::{
-    prelude::_embedded_hal_blocking_i2c_Read
+    prelude::_embedded_hal_blocking_i2c_Read, digital::v2::OutputPin
 };
 use rp2040_hal::clocks::Clock;
 use rp2040_boot2;   
@@ -120,8 +120,10 @@ fn main() -> ! {
     //serial.write(b"SFP Access Port v0.1 \r\n");
 
     loop {
-
-            wfi();
+        aux_led.set_high().unwrap();
+        delay.delay_ms(1000);
+        aux_led.set_low().unwrap();
+        delay.delay_ms(1000);
     }
 
 }
@@ -146,20 +148,20 @@ unsafe fn  USBCTRL_IRQ() {
             }
             Ok(count) => {
                 critical_section::with(|cs| {
-                    let mut readbuf: [u8; 1] = [0; 1]; //96 bytes is the size of the Serial ID field defined by SFP MSA
+                    let mut readbuf: [u8; 127] = [0;127]; 
 
-                    // We need a mutable reference to the I2C bus, so we need to borrow and de-ref
+                    // We need a mutable reference to the I2C bus, so we borrow and de-ref
                     if let Some(ref mut i2c_ref) = I2C_BUS.borrow(cs).borrow_mut().deref_mut(){
 
                         // Technically this is blocking, so we might not want this in an interrupt - but it should be okay for now??
-                        let res = i2c_ref.read(0x50, &mut readbuf); // this works - but the address is wrong???
+                        let res = i2c_ref.read(0x50, &mut readbuf);
                         if let Ok(d) = res {
-                           serial.write(b"XCVR Detected! Module Identifier: \r\n");
-                           readbuf.iter_mut().take(count).for_each(|b| {
-                            serial.write(&b.to_be_bytes());
-                           });
+                           serial_write(serial, "XCVR Detected!", false);
+                           serial_write(serial, unsafe {core::str::from_utf8_unchecked(&readbuf)}, false); // When I get a global allocator working we can safe-ify this
+                           serial_write(serial, "\r\n", false);
+                           readbuf = [0;127];
                         } else {
-                            serial.write(b"No XCVR detected\r\n");
+                            serial_write(serial, "No XCVR Detected... \r\n", false);
                         }
                     };
                     
@@ -171,7 +173,29 @@ unsafe fn  USBCTRL_IRQ() {
 
 }
 
-fn read_xcvr_serial() {
+// Quick helper function to coerce data into a serial interface
+fn serial_write(serial: &mut SerialPort<'static, hal::usb::UsbBus>, buf: &str, block:bool){
+    let buf_ptr = buf.as_bytes();
 
+    // Test the size of the data we want to send - then shrink our buffer.
+    let mut index = 0;
+    while index < buf_ptr.len() && buf_ptr[index] != 0 {
+        index += 1;
+    }
+    let mut buf_ptr = &buf_ptr[0..index];
+
+    while !buf_ptr.is_empty() {
+        match serial.write(buf_ptr) {
+            Ok(len) => buf_ptr = &buf_ptr[len..],
+            Err(UsbError::WouldBlock) => {
+                //USB Write Buffer is full - we really don't want this to block if called from an interrupt!
+                if !block {
+                    break;
+                }
+            }
+            Err(_) => break, //Any other errors, we can just drop the data and handle the consequences later
+        }
+    }
+    let _ = serial.flush();
 }
 
